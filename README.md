@@ -4,12 +4,14 @@ A Go-based MCP (Model Context Protocol) server for FreshRSS, combining the best 
 
 ## Features
 
-- **14 MCP tools** for complete FreshRSS management
+- **15 MCP tools** for complete FreshRSS management
 - **HTML stripping** removes tags for clean text output
 - **Word-boundary truncation** for token-efficient summaries
+- **Compact JSON** output saves 20-30% tokens vs indented
 - **Auth retry** on 401 (automatic re-authentication)
+- **Health endpoint** at `/health` for Docker monitoring
 - **Streamable HTTP, SSE, and stdio** transport modes
-- **30MB Docker image** (Alpine multi-stage build)
+- **~32MB Docker image** (Alpine multi-stage build)
 
 ## Tools
 
@@ -19,14 +21,15 @@ A Go-based MCP (Model Context Protocol) server for FreshRSS, combining the best 
 | `freshrss_list_folders` | List folder/label tags | Read |
 | `freshrss_get_unread_count` | Unread counts per feed | Read |
 | `freshrss_get_articles` | Fetch articles with filtering and pagination | Read |
-| `freshrss_search_articles` | Search articles by keyword | Read |
-| `freshrss_get_article_detail` | Get full article content (no truncation) | Read |
+| `freshrss_search_articles` | Search articles by keyword (supports feed/folder scope) | Read |
+| `freshrss_get_article_detail` | Get full article content (no truncation, direct API lookup) | Read |
 | `freshrss_mark_read` | Mark articles as read | Write |
 | `freshrss_mark_unread` | Mark articles as unread | Write |
 | `freshrss_mark_all_read` | Mark all in feed/folder as read | Write |
 | `freshrss_star_article` | Star articles | Write |
 | `freshrss_unstar_article` | Remove star from articles | Write |
 | `freshrss_add_label` | Add label/tag to articles | Write |
+| `freshrss_remove_label` | Remove label/tag from articles | Write |
 | `freshrss_subscribe` | Subscribe to a feed | Write |
 | `freshrss_unsubscribe` | Unsubscribe from a feed | Write |
 
@@ -76,6 +79,17 @@ cp .env.example .env
 docker compose up -d
 ```
 
+## Health Check
+
+When running in HTTP mode, a health endpoint is available:
+
+```bash
+curl http://localhost:8080/health
+# {"status":"healthy"}
+```
+
+Returns 200 when FreshRSS authentication is valid, 503 with error details otherwise.
+
 ## MCP Client Configuration
 
 ### Streamable HTTP (Docker)
@@ -110,10 +124,10 @@ docker compose up -d
 
 ## Token Efficiency
 
-The `get_articles` tool supports three token-saving options:
+The `get_articles` and `search_articles` tools support three token-saving options:
 
 - `strip_html` (default: true) — Removes HTML tags, collapses whitespace
 - `trim_content` (default: true) — Truncates at word boundaries
 - `max_summary_length` (default: 400) — Maximum characters for content/summary
 
-Typical savings: **~90% reduction** in token usage compared to raw HTML content.
+All JSON output uses compact format (no indentation) for minimal token usage. Typical savings: **~90% reduction** in token usage compared to raw HTML content.
