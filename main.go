@@ -177,9 +177,11 @@ func main() {
 	), handleSubscribe)
 
 	s.AddTool(mcp.NewTool("freshrss_search_articles",
-		mcp.WithDescription("Search articles by keyword in title/content. Uses client-side filtering."),
+		mcp.WithDescription("Search articles by keyword in title/content. Uses client-side filtering. Can scope to a specific feed or folder."),
 		readOnlyAnnotation(),
 		mcp.WithString("query", mcp.Required(), mcp.Description("Search keyword (case-insensitive)")),
+		mcp.WithString("feed_id", mcp.Description("Limit search to a feed, e.g. '15' or 'feed/15'")),
+		mcp.WithString("folder", mcp.Description("Limit search to a folder/label name")),
 		mcp.WithNumber("count", mcp.Description("Max articles to scan (default 100)")),
 		mcp.WithNumber("max_results", mcp.Description("Max matching results to return (default 20)")),
 		mcp.WithBoolean("show_read", mcp.Description("Include read articles (default true for search)")),
@@ -561,7 +563,18 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		maxLen = int(v)
 	}
 
-	stream, err := c.GetStream("user/-/state/com.google/reading-list", scanCount, "d", false, "")
+	streamID := "user/-/state/com.google/reading-list"
+	if folder, ok := args["folder"].(string); ok && folder != "" {
+		streamID = "user/-/label/" + folder
+	} else if fid, ok := args["feed_id"].(string); ok && fid != "" {
+		if strings.HasPrefix(fid, "feed/") {
+			streamID = fid
+		} else {
+			streamID = "feed/" + fid
+		}
+	}
+
+	stream, err := c.GetStream(streamID, scanCount, "d", false, "")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
