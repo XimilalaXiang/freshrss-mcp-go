@@ -3,6 +3,7 @@ package greader
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -79,6 +80,7 @@ func ParseArticle(item map[string]any) (Article, error) {
 	isRead := false
 	isStarred := false
 	var labels []string
+	const labelPrefix = "user/-/label/"
 	for _, c := range cats {
 		switch c {
 		case "user/-/state/com.google/read":
@@ -86,7 +88,7 @@ func ParseArticle(item map[string]any) (Article, error) {
 		case "user/-/state/com.google/starred":
 			isStarred = true
 		default:
-			if len(c) > 16 && c[:16] == "user/-/label/" {
+			if strings.HasPrefix(c, labelPrefix) {
 				labels = append(labels, c)
 			}
 		}
