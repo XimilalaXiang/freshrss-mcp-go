@@ -254,7 +254,7 @@ func handleListSubscriptions(ctx context.Context, req mcp.CallToolRequest) (*mcp
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	b, _ := json.MarshalIndent(list.Subscriptions, "", "  ")
+	b, _ := json.Marshal(list.Subscriptions)
 	return mcp.NewToolResultText(string(b)), nil
 }
 
@@ -277,7 +277,7 @@ func handleListFolders(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 			folders = append(folders, map[string]string{"id": t.ID, "name": name})
 		}
 	}
-	b, _ := json.MarshalIndent(folders, "", "  ")
+	b, _ := json.Marshal(folders)
 	return mcp.NewToolResultText(string(b)), nil
 }
 
@@ -298,7 +298,7 @@ func handleUnreadCount(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	b, _ := json.MarshalIndent(u.UnreadCounts, "", "  ")
+	b, _ := json.Marshal(u.UnreadCounts)
 	return mcp.NewToolResultText(string(b)), nil
 }
 
@@ -410,7 +410,7 @@ func handleGetArticles(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		HasMore:      stream.Continuation != nil,
 		Continuation: stream.Continuation,
 	}
-	b, _ := json.MarshalIndent(resp, "", "  ")
+	b, _ := json.Marshal(resp)
 	return mcp.NewToolResultText(string(b)), nil
 }
 
@@ -615,7 +615,7 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		Count:   len(results),
 		Scanned: len(stream.Items),
 	}
-	b, _ := json.MarshalIndent(resp, "", "  ")
+	b, _ := json.Marshal(resp)
 	return mcp.NewToolResultText(string(b)), nil
 }
 
@@ -653,7 +653,7 @@ func handleArticleDetail(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 		a.Summary = textutil.StripHTML(a.Summary)
 		a.Title = textutil.StripHTML(a.Title)
 	}
-	b, _ := json.MarshalIndent(a, "", "  ")
+	b, _ := json.Marshal(a)
 	return mcp.NewToolResultText(string(b)), nil
 }
 
