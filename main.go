@@ -155,6 +155,13 @@ func main() {
 		mcp.WithString("label", mcp.Required(), mcp.Description("Label name to add")),
 	), handleAddLabel)
 
+	s.AddTool(mcp.NewTool("freshrss_remove_label",
+		mcp.WithDescription("Remove a label/tag from articles."),
+		writeAnnotation(),
+		mcp.WithArray("article_ids", mcp.Required(), mcp.Description("Full FreshRSS item ids"), mcp.WithStringItems()),
+		mcp.WithString("label", mcp.Required(), mcp.Description("Label name to remove")),
+	), handleRemoveLabel)
+
 	s.AddTool(mcp.NewTool("freshrss_unsubscribe",
 		mcp.WithDescription("Unsubscribe from a feed."),
 		writeAnnotation(),
@@ -478,6 +485,26 @@ func handleAddLabel(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	return mcp.NewToolResultText(fmt.Sprintf(`{"ok":true,"labeled":%d,"label":%q}`, len(ids), label)), nil
+}
+
+func handleRemoveLabel(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	c, err := freshClient()
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	ids, err := req.RequireStringSlice("article_ids")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	args := getArgs(req)
+	label, _ := args["label"].(string)
+	if label == "" {
+		return mcp.NewToolResultError("label required"), nil
+	}
+	if err := c.RemoveLabel(ids, label); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf(`{"ok":true,"unlabeled":%d,"label":%q}`, len(ids), label)), nil
 }
 
 func handleUnsubscribe(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

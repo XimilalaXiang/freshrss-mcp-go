@@ -424,6 +424,14 @@ func (c *Client) AddLabel(itemIDs []string, label string) error {
 	return c.EditTag(itemIDs, []string{"user/-/label/" + label}, nil)
 }
 
+// RemoveLabel removes a user label from articles.
+func (c *Client) RemoveLabel(itemIDs []string, label string) error {
+	if len(itemIDs) == 0 || label == "" {
+		return nil
+	}
+	return c.EditTag(itemIDs, nil, []string{"user/-/label/" + label})
+}
+
 // Unsubscribe removes a feed.
 func (c *Client) Unsubscribe(feedURL string) error {
 	return c.postWithRetry("/reader/api/0/subscription/edit", func(tok string) url.Values {
