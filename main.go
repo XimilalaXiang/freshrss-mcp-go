@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"net/http"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
@@ -211,7 +213,10 @@ func main() {
 	case "http":
 		log.Printf("freshrss-mcp-go streamable-http on :%s", port)
 		httpServer := server.NewStreamableHTTPServer(s)
-		if err := httpServer.Start(":" + port); err != nil {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/health", healthHandler)
+		mux.Handle("/", httpServer)
+		if err := http.ListenAndServe(":"+port, mux); err != nil {
 			log.Fatal(err)
 		}
 	case "sse":
@@ -226,6 +231,18 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, err := freshClient()
+	if err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintf(w, `{"status":"unhealthy","error":%q}`, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, `{"status":"healthy"}`)
 }
 
 func handleListSubscriptions(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
