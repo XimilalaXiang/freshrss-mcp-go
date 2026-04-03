@@ -263,26 +263,15 @@ func (c *Client) GetStream(streamID string, n int, order string, excludeRead boo
 	return &out, nil
 }
 
-// EditTag applies tag changes using T + i + a/r (FreshRSS / Google Reader).
-// Retries once on 401 by re-authenticating and refreshing the edit token.
-func (c *Client) EditTag(itemIDs []string, addTags, removeTags []string) error {
+// postWithRetry sends a POST with edit token, retrying once on 401.
+func (c *Client) postWithRetry(pathSuffix string, buildForm func(tok string) url.Values) error {
 	doOnce := func() (int, []byte, error) {
 		tok, err := c.EditToken()
 		if err != nil {
 			return 0, nil, err
 		}
-		form := url.Values{}
-		form.Set("T", tok)
-		for _, t := range addTags {
-			form.Add("a", t)
-		}
-		for _, t := range removeTags {
-			form.Add("r", t)
-		}
-		for _, id := range itemIDs {
-			form.Add("i", id)
-		}
-		req, err := http.NewRequest(http.MethodPost, c.apiURL+"/reader/api/0/edit-tag", bytes.NewBufferString(form.Encode()))
+		form := buildForm(tok)
+		req, err := http.NewRequest(http.MethodPost, c.apiURL+pathSuffix, bytes.NewBufferString(form.Encode()))
 		if err != nil {
 			return 0, nil, err
 		}
@@ -311,9 +300,27 @@ func (c *Client) EditTag(itemIDs []string, addTags, removeTags []string) error {
 		}
 	}
 	if code >= 400 {
-		return fmt.Errorf("edit-tag: HTTP %d: %s", code, string(body))
+		return fmt.Errorf("%s: HTTP %d: %s", pathSuffix, code, string(body))
 	}
 	return nil
+}
+
+// EditTag applies tag changes using T + i + a/r (FreshRSS / Google Reader).
+func (c *Client) EditTag(itemIDs []string, addTags, removeTags []string) error {
+	return c.postWithRetry("/reader/api/0/edit-tag", func(tok string) url.Values {
+		form := url.Values{}
+		form.Set("T", tok)
+		for _, t := range addTags {
+			form.Add("a", t)
+		}
+		for _, t := range removeTags {
+			form.Add("r", t)
+		}
+		for _, id := range itemIDs {
+			form.Add("i", id)
+		}
+		return form
+	})
 }
 
 // MarkRead marks items read.
@@ -358,101 +365,29 @@ func (c *Client) AddLabel(itemIDs []string, label string) error {
 
 // Unsubscribe removes a feed.
 func (c *Client) Unsubscribe(feedURL string) error {
-	doOnce := func() (int, []byte, error) {
-		tok, err := c.EditToken()
-		if err != nil {
-			return 0, nil, err
-		}
+	return c.postWithRetry("/reader/api/0/subscription/edit", func(tok string) url.Values {
 		form := url.Values{}
 		form.Set("T", tok)
 		form.Set("ac", "unsubscribe")
 		form.Set("s", "feed/"+feedURL)
-		req, err := http.NewRequest(http.MethodPost, c.apiURL+"/reader/api/0/subscription/edit", bytes.NewBufferString(form.Encode()))
-		if err != nil {
-			return 0, nil, err
-		}
-		req.Header = c.authHeader()
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return 0, nil, err
-		}
-		defer resp.Body.Close()
-		b, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, b, nil
-	}
-
-	code, body, err := doOnce()
-	if err != nil {
-		return err
-	}
-	if code == 401 {
-		if rerr := c.reauth(); rerr != nil {
-			return fmt.Errorf("re-auth failed: %w", rerr)
-		}
-		code, body, err = doOnce()
-		if err != nil {
-			return err
-		}
-	}
-	if code >= 400 {
-		return fmt.Errorf("unsubscribe: HTTP %d: %s", code, string(body))
-	}
-	return nil
+		return form
+	})
 }
 
 // MarkAllRead marks all items in a stream as read up to a timestamp.
 func (c *Client) MarkAllRead(streamID string, timestampUsec int64) error {
-	doOnce := func() (int, []byte, error) {
-		tok, err := c.EditToken()
-		if err != nil {
-			return 0, nil, err
-		}
+	return c.postWithRetry("/reader/api/0/mark-all-as-read", func(tok string) url.Values {
 		form := url.Values{}
 		form.Set("T", tok)
 		form.Set("s", streamID)
 		form.Set("ts", fmt.Sprintf("%d", timestampUsec))
-		req, err := http.NewRequest(http.MethodPost, c.apiURL+"/reader/api/0/mark-all-as-read", bytes.NewBufferString(form.Encode()))
-		if err != nil {
-			return 0, nil, err
-		}
-		req.Header = c.authHeader()
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return 0, nil, err
-		}
-		defer resp.Body.Close()
-		b, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, b, nil
-	}
-
-	code, body, err := doOnce()
-	if err != nil {
-		return err
-	}
-	if code == 401 {
-		if rerr := c.reauth(); rerr != nil {
-			return fmt.Errorf("re-auth failed: %w", rerr)
-		}
-		code, body, err = doOnce()
-		if err != nil {
-			return err
-		}
-	}
-	if code >= 400 {
-		return fmt.Errorf("mark-all-read: HTTP %d: %s", code, string(body))
-	}
-	return nil
+		return form
+	})
 }
 
-// Subscribe adds a feed. Retries once on 401.
+// Subscribe adds a feed.
 func (c *Client) Subscribe(feedURL string, title, folder string) error {
-	doOnce := func() (int, []byte, error) {
-		tok, err := c.EditToken()
-		if err != nil {
-			return 0, nil, err
-		}
+	return c.postWithRetry("/reader/api/0/subscription/edit", func(tok string) url.Values {
 		form := url.Values{}
 		form.Set("T", tok)
 		form.Set("ac", "subscribe")
@@ -463,36 +398,6 @@ func (c *Client) Subscribe(feedURL string, title, folder string) error {
 		if folder != "" {
 			form.Set("a", "user/-/label/"+folder)
 		}
-		req, err := http.NewRequest(http.MethodPost, c.apiURL+"/reader/api/0/subscription/edit", bytes.NewBufferString(form.Encode()))
-		if err != nil {
-			return 0, nil, err
-		}
-		req.Header = c.authHeader()
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return 0, nil, err
-		}
-		defer resp.Body.Close()
-		b, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, b, nil
-	}
-
-	code, body, err := doOnce()
-	if err != nil {
-		return err
-	}
-	if code == 401 {
-		if rerr := c.reauth(); rerr != nil {
-			return fmt.Errorf("re-auth failed: %w", rerr)
-		}
-		code, body, err = doOnce()
-		if err != nil {
-			return err
-		}
-	}
-	if code >= 400 {
-		return fmt.Errorf("subscribe: HTTP %d: %s", code, string(body))
-	}
-	return nil
+		return form
+	})
 }
