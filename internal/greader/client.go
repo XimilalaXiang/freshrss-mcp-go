@@ -263,6 +263,67 @@ func (c *Client) GetStream(streamID string, n int, order string, excludeRead boo
 	return &out, nil
 }
 
+// GetItemContents fetches full content for specific article IDs using stream/items/contents.
+func (c *Client) GetItemContents(itemIDs []string) (*StreamContentsJSON, error) {
+	if len(itemIDs) == 0 {
+		return &StreamContentsJSON{}, nil
+	}
+	form := url.Values{}
+	form.Set("output", "json")
+	for _, id := range itemIDs {
+		form.Add("i", id)
+	}
+	b, err := c.postRaw("/reader/api/0/stream/items/contents", form)
+	if err != nil {
+		return nil, err
+	}
+	var out StreamContentsJSON
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, fmt.Errorf("parse items/contents: %w", err)
+	}
+	return &out, nil
+}
+
+// postRaw sends a POST with auth header (no edit token), retrying on 401.
+func (c *Client) postRaw(pathSuffix string, form url.Values) ([]byte, error) {
+	doOnce := func() (*http.Response, error) {
+		req, err := http.NewRequest(http.MethodPost, c.apiURL+pathSuffix, bytes.NewBufferString(form.Encode()))
+		if err != nil {
+			return nil, err
+		}
+		req.Header = c.authHeader()
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		return c.httpClient.Do(req)
+	}
+
+	resp, err := doOnce()
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 401 {
+		resp.Body.Close()
+		if rerr := c.reauth(); rerr != nil {
+			return nil, fmt.Errorf("re-auth failed: %w", rerr)
+		}
+		resp, err = doOnce()
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+	}
+
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("POST %s: HTTP %d: %s", pathSuffix, resp.StatusCode, string(b))
+	}
+	return b, nil
+}
+
 // postWithRetry sends a POST with edit token, retrying once on 401.
 func (c *Client) postWithRetry(pathSuffix string, buildForm func(tok string) url.Values) error {
 	doOnce := func() (int, []byte, error) {

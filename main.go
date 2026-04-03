@@ -589,30 +589,26 @@ func handleArticleDetail(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 		strip = v
 	}
 
-	stream, err := c.GetStream("user/-/state/com.google/reading-list", 200, "d", false, "")
+	stream, err := c.GetItemContents([]string{articleID})
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	for _, it := range stream.Items {
-		id, _ := it["id"].(string)
-		if id != articleID {
-			continue
-		}
-		a, e := greader.ParseArticle(it)
-		if e != nil {
-			return mcp.NewToolResultError(e.Error()), nil
-		}
-		if strip {
-			a.Content = textutil.StripHTML(a.Content)
-			a.Summary = textutil.StripHTML(a.Summary)
-			a.Title = textutil.StripHTML(a.Title)
-		}
-		b, _ := json.MarshalIndent(a, "", "  ")
-		return mcp.NewToolResultText(string(b)), nil
+	if len(stream.Items) == 0 {
+		return mcp.NewToolResultError(fmt.Sprintf("article %q not found", articleID)), nil
 	}
 
-	return mcp.NewToolResultError(fmt.Sprintf("article %q not found in recent items", articleID)), nil
+	a, e := greader.ParseArticle(stream.Items[0])
+	if e != nil {
+		return mcp.NewToolResultError(e.Error()), nil
+	}
+	if strip {
+		a.Content = textutil.StripHTML(a.Content)
+		a.Summary = textutil.StripHTML(a.Summary)
+		a.Title = textutil.StripHTML(a.Title)
+	}
+	b, _ := json.MarshalIndent(a, "", "  ")
+	return mcp.NewToolResultText(string(b)), nil
 }
 
 func handleMarkAllRead(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
