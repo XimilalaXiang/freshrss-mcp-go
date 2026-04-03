@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -129,6 +130,37 @@ func main() {
 		mcp.WithArray("article_ids", mcp.Required(), mcp.Description("Full FreshRSS item ids"), mcp.WithStringItems()),
 	), handleMarkRead)
 
+	s.AddTool(mcp.NewTool("freshrss_mark_unread",
+		mcp.WithDescription("Mark articles as unread by full item id strings."),
+		writeAnnotation(),
+		mcp.WithArray("article_ids", mcp.Required(), mcp.Description("Full FreshRSS item ids"), mcp.WithStringItems()),
+	), handleMarkUnread)
+
+	s.AddTool(mcp.NewTool("freshrss_star_article",
+		mcp.WithDescription("Star (favorite) articles."),
+		writeAnnotation(),
+		mcp.WithArray("article_ids", mcp.Required(), mcp.Description("Full FreshRSS item ids"), mcp.WithStringItems()),
+	), handleStar)
+
+	s.AddTool(mcp.NewTool("freshrss_unstar_article",
+		mcp.WithDescription("Remove star from articles."),
+		writeAnnotation(),
+		mcp.WithArray("article_ids", mcp.Required(), mcp.Description("Full FreshRSS item ids"), mcp.WithStringItems()),
+	), handleUnstar)
+
+	s.AddTool(mcp.NewTool("freshrss_add_label",
+		mcp.WithDescription("Add a label/tag to articles."),
+		writeAnnotation(),
+		mcp.WithArray("article_ids", mcp.Required(), mcp.Description("Full FreshRSS item ids"), mcp.WithStringItems()),
+		mcp.WithString("label", mcp.Required(), mcp.Description("Label name to add")),
+	), handleAddLabel)
+
+	s.AddTool(mcp.NewTool("freshrss_unsubscribe",
+		mcp.WithDescription("Unsubscribe from a feed."),
+		writeAnnotation(),
+		mcp.WithString("feed_url", mcp.Required(), mcp.Description("RSS/Atom feed URL to unsubscribe")),
+	), handleUnsubscribe)
+
 	s.AddTool(mcp.NewTool("freshrss_subscribe",
 		mcp.WithDescription("Subscribe to a new feed URL."),
 		writeAnnotation(),
@@ -136,6 +168,32 @@ func main() {
 		mcp.WithString("title", mcp.Description("Optional title")),
 		mcp.WithString("folder", mcp.Description("Optional folder/label name")),
 	), handleSubscribe)
+
+	s.AddTool(mcp.NewTool("freshrss_search_articles",
+		mcp.WithDescription("Search articles by keyword in title/content. Uses client-side filtering."),
+		readOnlyAnnotation(),
+		mcp.WithString("query", mcp.Required(), mcp.Description("Search keyword (case-insensitive)")),
+		mcp.WithNumber("count", mcp.Description("Max articles to scan (default 100)")),
+		mcp.WithNumber("max_results", mcp.Description("Max matching results to return (default 20)")),
+		mcp.WithBoolean("show_read", mcp.Description("Include read articles (default true for search)")),
+		mcp.WithBoolean("strip_html", mcp.Description("Strip HTML (default true)")),
+		mcp.WithBoolean("trim_content", mcp.Description("Truncate body/summary (default true)")),
+		mcp.WithNumber("max_summary_length", mcp.Description("Max chars for summary+content (default 400)")),
+	), handleSearch)
+
+	s.AddTool(mcp.NewTool("freshrss_get_article_detail",
+		mcp.WithDescription("Get full article content without truncation. Pass a single article id."),
+		readOnlyAnnotation(),
+		mcp.WithString("article_id", mcp.Required(), mcp.Description("Full FreshRSS item id")),
+		mcp.WithBoolean("strip_html", mcp.Description("Strip HTML tags (default true)")),
+	), handleArticleDetail)
+
+	s.AddTool(mcp.NewTool("freshrss_mark_all_read",
+		mcp.WithDescription("Mark all articles in a feed or folder as read."),
+		writeAnnotation(),
+		mcp.WithString("feed_id", mcp.Description("Feed id, e.g. '15' or 'feed/15'")),
+		mcp.WithString("folder", mcp.Description("Folder/label name")),
+	), handleMarkAllRead)
 
 	transport := env("MCP_TRANSPORT", "")
 	port := env("MCP_PORT", "8080")
@@ -351,4 +409,235 @@ func handleSubscribe(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	return mcp.NewToolResultText(`{"ok":true}`), nil
+}
+
+func handleMarkUnread(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	c, err := freshClient()
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	ids, err := req.RequireStringSlice("article_ids")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if err := c.MarkUnread(ids); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf(`{"ok":true,"marked_unread":%d}`, len(ids))), nil
+}
+
+func handleStar(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	c, err := freshClient()
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	ids, err := req.RequireStringSlice("article_ids")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if err := c.Star(ids); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf(`{"ok":true,"starred":%d}`, len(ids))), nil
+}
+
+func handleUnstar(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	c, err := freshClient()
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	ids, err := req.RequireStringSlice("article_ids")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	if err := c.Unstar(ids); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf(`{"ok":true,"unstarred":%d}`, len(ids))), nil
+}
+
+func handleAddLabel(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	c, err := freshClient()
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	ids, err := req.RequireStringSlice("article_ids")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	args := getArgs(req)
+	label, _ := args["label"].(string)
+	if label == "" {
+		return mcp.NewToolResultError("label required"), nil
+	}
+	if err := c.AddLabel(ids, label); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf(`{"ok":true,"labeled":%d,"label":%q}`, len(ids), label)), nil
+}
+
+func handleUnsubscribe(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	c, err := freshClient()
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	args := getArgs(req)
+	fu, _ := args["feed_url"].(string)
+	if fu == "" {
+		return mcp.NewToolResultError("feed_url required"), nil
+	}
+	if err := c.Unsubscribe(fu); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return mcp.NewToolResultText(`{"ok":true}`), nil
+}
+
+func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	c, err := freshClient()
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	args := getArgs(req)
+	query, _ := args["query"].(string)
+	if query == "" {
+		return mcp.NewToolResultError("query required"), nil
+	}
+	queryLower := strings.ToLower(query)
+
+	scanCount := 100
+	if v, ok := args["count"].(float64); ok && v > 0 {
+		scanCount = int(v)
+	}
+	maxResults := 20
+	if v, ok := args["max_results"].(float64); ok && v > 0 {
+		maxResults = int(v)
+	}
+
+	strip := true
+	if v, ok := args["strip_html"].(bool); ok {
+		strip = v
+	}
+	trim := true
+	if v, ok := args["trim_content"].(bool); ok {
+		trim = v
+	}
+	maxLen := 400
+	if v, ok := args["max_summary_length"].(float64); ok {
+		maxLen = int(v)
+	}
+
+	stream, err := c.GetStream("user/-/state/com.google/reading-list", scanCount, "d", false, "")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	var results []greader.Article
+	for _, it := range stream.Items {
+		a, e := greader.ParseArticle(it)
+		if e != nil {
+			continue
+		}
+		titleLower := strings.ToLower(a.Title)
+		contentLower := strings.ToLower(a.Content + a.Summary)
+		if !strings.Contains(titleLower, queryLower) && !strings.Contains(contentLower, queryLower) {
+			continue
+		}
+		if strip {
+			a.Content = textutil.StripHTML(a.Content)
+			a.Summary = textutil.StripHTML(a.Summary)
+			a.Title = textutil.StripHTML(a.Title)
+		}
+		if trim {
+			a.Content = textutil.TruncateAtWord(a.Content, maxLen)
+			a.Summary = textutil.TruncateAtWord(a.Summary, maxLen)
+		}
+		results = append(results, a)
+		if len(results) >= maxResults {
+			break
+		}
+	}
+
+	type searchResp struct {
+		Query   string           `json:"query"`
+		Results []greader.Article `json:"results"`
+		Count   int              `json:"count"`
+		Scanned int              `json:"scanned"`
+	}
+	resp := searchResp{
+		Query:   query,
+		Results: results,
+		Count:   len(results),
+		Scanned: len(stream.Items),
+	}
+	b, _ := json.MarshalIndent(resp, "", "  ")
+	return mcp.NewToolResultText(string(b)), nil
+}
+
+func handleArticleDetail(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	c, err := freshClient()
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	args := getArgs(req)
+	articleID, _ := args["article_id"].(string)
+	if articleID == "" {
+		return mcp.NewToolResultError("article_id required"), nil
+	}
+
+	strip := true
+	if v, ok := args["strip_html"].(bool); ok {
+		strip = v
+	}
+
+	stream, err := c.GetStream("user/-/state/com.google/reading-list", 200, "d", false, "")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	for _, it := range stream.Items {
+		id, _ := it["id"].(string)
+		if id != articleID {
+			continue
+		}
+		a, e := greader.ParseArticle(it)
+		if e != nil {
+			return mcp.NewToolResultError(e.Error()), nil
+		}
+		if strip {
+			a.Content = textutil.StripHTML(a.Content)
+			a.Summary = textutil.StripHTML(a.Summary)
+			a.Title = textutil.StripHTML(a.Title)
+		}
+		b, _ := json.MarshalIndent(a, "", "  ")
+		return mcp.NewToolResultText(string(b)), nil
+	}
+
+	return mcp.NewToolResultError(fmt.Sprintf("article %q not found in recent items", articleID)), nil
+}
+
+func handleMarkAllRead(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	c, err := freshClient()
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	args := getArgs(req)
+
+	var streamID string
+	if folder, ok := args["folder"].(string); ok && folder != "" {
+		streamID = "user/-/label/" + folder
+	} else if fid, ok := args["feed_id"].(string); ok && fid != "" {
+		if strings.HasPrefix(fid, "feed/") {
+			streamID = fid
+		} else {
+			streamID = "feed/" + fid
+		}
+	} else {
+		return mcp.NewToolResultError("provide either feed_id or folder"), nil
+	}
+
+	now := time.Now().UnixMicro()
+	if err := c.MarkAllRead(streamID, now); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf(`{"ok":true,"stream":%q}`, streamID)), nil
 }
