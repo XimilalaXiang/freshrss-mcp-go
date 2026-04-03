@@ -208,14 +208,18 @@ func main() {
 
 	transport := env("MCP_TRANSPORT", "")
 	port := env("MCP_PORT", "8080")
+	authToken := env("MCP_AUTH_TOKEN", "")
 
 	switch transport {
 	case "http":
 		log.Printf("freshrss-mcp-go streamable-http on :%s", port)
+		if authToken != "" {
+			log.Println("Bearer token authentication enabled")
+		}
 		httpServer := server.NewStreamableHTTPServer(s)
 		mux := http.NewServeMux()
 		mux.HandleFunc("/health", healthHandler)
-		mux.Handle("/", httpServer)
+		mux.Handle("/", authMiddleware(authToken, httpServer))
 		if err := http.ListenAndServe(":"+port, mux); err != nil {
 			log.Fatal(err)
 		}
@@ -231,6 +235,27 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+}
+
+func authMiddleware(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		auth := r.Header.Get("Authorization")
+		if auth == "" {
+			auth = r.URL.Query().Get("token")
+		}
+		expected := "Bearer " + token
+		if auth != expected && auth != token {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprint(w, `{"error":"unauthorized","hint":"set Authorization: Bearer <token> header"}`)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
