@@ -285,27 +285,62 @@ func handleUnreadCount(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	return mcp.NewToolResultText(string(b)), nil
 }
 
+type tokenOpts struct {
+	strip  bool
+	trim   bool
+	maxLen int
+}
+
+func parseTokenOpts(args map[string]any) tokenOpts {
+	o := tokenOpts{strip: true, trim: true, maxLen: 400}
+	if v, ok := args["strip_html"].(bool); ok {
+		o.strip = v
+	}
+	if v, ok := args["trim_content"].(bool); ok {
+		o.trim = v
+	}
+	if v, ok := args["max_summary_length"].(float64); ok && v >= 50 {
+		o.maxLen = int(v)
+	}
+	return o
+}
+
+func applyTokenOpts(a *greader.Article, o tokenOpts) {
+	if o.strip {
+		a.Content = textutil.StripHTML(a.Content)
+		a.Summary = textutil.StripHTML(a.Summary)
+		a.Title = textutil.StripHTML(a.Title)
+	}
+	if o.trim {
+		a.Content = textutil.TruncateAtWord(a.Content, o.maxLen)
+		a.Summary = textutil.TruncateAtWord(a.Summary, o.maxLen)
+	}
+}
+
+func parseStreamID(args map[string]any) string {
+	if b, ok := args["starred_only"].(bool); ok && b {
+		return "user/-/state/com.google/starred"
+	}
+	if folder, ok := args["folder"].(string); ok && folder != "" {
+		return "user/-/label/" + folder
+	}
+	if fid, ok := args["feed_id"].(string); ok && fid != "" {
+		if strings.HasPrefix(fid, "feed/") {
+			return fid
+		}
+		return "feed/" + fid
+	}
+	return "user/-/state/com.google/reading-list"
+}
+
 func handleGetArticles(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	c, err := freshClient()
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	args := getArgs(req)
-
-	var streamID string
-	if b, ok := args["starred_only"].(bool); ok && b {
-		streamID = "user/-/state/com.google/starred"
-	} else if folder, ok := args["folder"].(string); ok && folder != "" {
-		streamID = "user/-/label/" + folder
-	} else if fid, ok := args["feed_id"].(string); ok && fid != "" {
-		if strings.HasPrefix(fid, "feed/") {
-			streamID = fid
-		} else {
-			streamID = "feed/" + fid
-		}
-	} else {
-		streamID = "user/-/state/com.google/reading-list"
-	}
+	streamID := parseStreamID(args)
+	tok := parseTokenOpts(args)
 
 	count := 30.0
 	if v, ok := args["count"].(float64); ok {
@@ -331,23 +366,6 @@ func handleGetArticles(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 
 	cont, _ := args["continuation"].(string)
 
-	trim := true
-	if t, ok := args["trim_content"].(bool); ok {
-		trim = t
-	}
-	strip := true
-	if t, ok := args["strip_html"].(bool); ok {
-		strip = t
-	}
-	maxLen := 400.0
-	if m, ok := args["max_summary_length"].(float64); ok {
-		maxLen = m
-	}
-	max := int(maxLen)
-	if max < 50 {
-		max = 50
-	}
-
 	stream, err := c.GetStream(streamID, n, order, excludeRead, cont)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
@@ -359,15 +377,7 @@ func handleGetArticles(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		if e != nil {
 			continue
 		}
-		if strip {
-			a.Content = textutil.StripHTML(a.Content)
-			a.Summary = textutil.StripHTML(a.Summary)
-			a.Title = textutil.StripHTML(a.Title)
-		}
-		if trim {
-			a.Content = textutil.TruncateAtWord(a.Content, max)
-			a.Summary = textutil.TruncateAtWord(a.Summary, max)
-		}
+		applyTokenOpts(&a, tok)
 		out = append(out, a)
 	}
 
@@ -540,6 +550,7 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		return mcp.NewToolResultError("query required"), nil
 	}
 	queryLower := strings.ToLower(query)
+	tok := parseTokenOpts(args)
 
 	scanCount := 100
 	if v, ok := args["count"].(float64); ok && v > 0 {
@@ -550,29 +561,7 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		maxResults = int(v)
 	}
 
-	strip := true
-	if v, ok := args["strip_html"].(bool); ok {
-		strip = v
-	}
-	trim := true
-	if v, ok := args["trim_content"].(bool); ok {
-		trim = v
-	}
-	maxLen := 400
-	if v, ok := args["max_summary_length"].(float64); ok {
-		maxLen = int(v)
-	}
-
-	streamID := "user/-/state/com.google/reading-list"
-	if folder, ok := args["folder"].(string); ok && folder != "" {
-		streamID = "user/-/label/" + folder
-	} else if fid, ok := args["feed_id"].(string); ok && fid != "" {
-		if strings.HasPrefix(fid, "feed/") {
-			streamID = fid
-		} else {
-			streamID = "feed/" + fid
-		}
-	}
+	streamID := parseStreamID(args)
 
 	stream, err := c.GetStream(streamID, scanCount, "d", false, "")
 	if err != nil {
@@ -590,15 +579,7 @@ func handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		if !strings.Contains(titleLower, queryLower) && !strings.Contains(contentLower, queryLower) {
 			continue
 		}
-		if strip {
-			a.Content = textutil.StripHTML(a.Content)
-			a.Summary = textutil.StripHTML(a.Summary)
-			a.Title = textutil.StripHTML(a.Title)
-		}
-		if trim {
-			a.Content = textutil.TruncateAtWord(a.Content, maxLen)
-			a.Summary = textutil.TruncateAtWord(a.Summary, maxLen)
-		}
+		applyTokenOpts(&a, tok)
 		results = append(results, a)
 		if len(results) >= maxResults {
 			break
