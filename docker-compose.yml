@@ -1,0 +1,9 @@
+services:
+  freshrss-mcp-go:
+    build: .
+    container_name: freshrss-mcp-go
+    restart: unless-stopped
+    ports:
+      - "8781:8080"
+    env_file:
+      - .env
