@@ -406,7 +406,11 @@ func handleSubscribe(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	title, _ := args["title"].(string)
 	folder, _ := args["folder"].(string)
 	if err := c.Subscribe(fu, title, folder); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "400") {
+			errMsg += " (possible causes: feed already subscribed, invalid feed URL, or feed unreachable)"
+		}
+		return mcp.NewToolResultError(errMsg), nil
 	}
 	return mcp.NewToolResultText(`{"ok":true}`), nil
 }
@@ -487,7 +491,11 @@ func handleUnsubscribe(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		return mcp.NewToolResultError("feed_url required"), nil
 	}
 	if err := c.Unsubscribe(fu); err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "400") {
+			errMsg += " (possible cause: feed not found in subscriptions)"
+		}
+		return mcp.NewToolResultError(errMsg), nil
 	}
 	return mcp.NewToolResultText(`{"ok":true}`), nil
 }
